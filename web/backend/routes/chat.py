@@ -26,13 +26,14 @@ ai_service = AIService()
 
 def _normalize_intent_text(value):
     value = unicodedata.normalize('NFD', str(value or '').lower())
-    return ''.join(char for char in value if unicodedata.category(char) != 'Mn')
+    value = ''.join(char for char in value if unicodedata.category(char) != 'Mn')
+    return value.replace('đ', 'd')
 
 
 def _is_latest_email_summary_request(message):
     normalized = _normalize_intent_text(message)
     has_email = any(term in normalized for term in (
-        'email', 'e-mail', 'gmail', 'mail moi', 'thu moi', 'hop thu'
+        'email', 'e-mail', 'gmail', 'mail', 'thu moi', 'hop thu'
     ))
     has_latest = any(term in normalized for term in (
         'moi nhat', 'gan nhat', 'vua nhan', 'moi nhan',
@@ -45,30 +46,67 @@ def _is_latest_email_summary_request(message):
     return has_email and has_latest and has_summary
 
 
-def _summarize_latest_email(user_id):
+def _latest_email_count(message):
+    normalized = _normalize_intent_text(message)
+    match = re.search(
+        r'\b(\d{1,2})\s*(?:email|e-mail|mail|thu)\b',
+        normalized
+    )
+    if match:
+        return max(1, min(int(match.group(1)), 5))
+
+    number_words = {
+        'mot': 1,
+        'hai': 2,
+        'ba': 3,
+        'bon': 4,
+        'tu': 4,
+        'nam': 5,
+    }
+    for word, count in number_words.items():
+        if re.search(rf'\b{word}\s+(?:email|e-mail|mail|thu)\b', normalized):
+            return count
+    return 1
+
+
+def _summarize_latest_emails(user_id, count=1):
     token_file = get_user_token_file(user_id)
     if not token_file or not os.path.exists(token_file):
         raise RuntimeError('Gmail chưa được kết nối cho tài khoản này.')
 
     service = GmailService(token_file=token_file)
-    latest = service.get_emails(max_results=1, query='in:inbox', include_read=True)
+    count = max(1, min(int(count or 1), 5))
+    latest = service.get_emails(
+        max_results=count,
+        query='in:inbox',
+        include_read=True
+    )
     if not latest:
         raise RuntimeError('Không tìm thấy email nào trong hộp thư đến.')
 
-    email_id = latest[0].get('id')
-    email = service.get_email_details(email_id, lazy=False) if email_id else None
-    if not email:
-        raise RuntimeError('Không thể tải nội dung đầy đủ của email mới nhất.')
+    emails = []
+    sections = []
+    for index, metadata in enumerate(latest[:count], start=1):
+        email_id = metadata.get('id')
+        email = service.get_email_details(email_id, lazy=False) if email_id else None
+        if not email:
+            logger.warning("Could not load full Gmail message %s", email_id)
+            continue
 
-    summary = ai_service.summarize_email_polished(email, user_id=user_id)
-    response = (
-        "EMAIL MỚI NHẤT\n"
-        f"Người gửi: {email.get('sender') or 'Không xác định'}\n"
-        f"Tiêu đề: {email.get('subject') or '(Không có tiêu đề)'}\n"
-        f"Thời gian: {email.get('date') or 'Không xác định'}\n\n"
-        f"{summary}"
-    )
-    return response, email
+        summary = ai_service.summarize_email_polished(email, user_id=user_id)
+        emails.append(email)
+        sections.append(
+            f"{index}. {email.get('subject') or '(Không có tiêu đề)'}\n"
+            f"Người gửi: {email.get('sender') or 'Không xác định'}\n"
+            f"Thời gian: {email.get('date') or 'Không xác định'}\n\n"
+            f"{summary}"
+        )
+
+    if not emails:
+        raise RuntimeError('Không thể tải nội dung đầy đủ của các email gần nhất.')
+
+    heading = "EMAIL MỚI NHẤT" if len(emails) == 1 else f"{len(emails)} EMAIL GẦN NHẤT"
+    return f"{heading}\n\n" + "\n\n--------------------\n\n".join(sections), emails
 
 
 def _intent_sources(message):
@@ -416,7 +454,9 @@ def send_message():
 
     if _is_latest_email_summary_request(user_message):
         try:
-            response, source_email = _summarize_latest_email(user_id)
+            requested_count = _latest_email_count(user_message)
+            response, source_emails = _summarize_latest_emails(user_id, requested_count)
+            source_email = source_emails[0]
             History.create(user_message, response, action_type='chat', db_path=db_path)
             return jsonify({
                 'success': True,
@@ -431,11 +471,17 @@ def send_message():
                     'sender': source_email.get('sender'),
                     'subject': source_email.get('subject'),
                     'date': source_email.get('date')
-                }
+                },
+                'email_sources': [{
+                    'id': email.get('id'),
+                    'sender': email.get('sender'),
+                    'subject': email.get('subject'),
+                    'date': email.get('date')
+                } for email in source_emails]
             })
         except Exception as e:
-            logger.exception("Failed to summarize latest Gmail message for user %s", user_id)
-            response = f"Không thể lấy email mới nhất từ Gmail: {e}"
+            logger.exception("Failed to summarize latest Gmail messages for user %s", user_id)
+            response = f"Không thể lấy email gần nhất từ Gmail: {e}"
             History.create(user_message, response, action_type='chat', db_path=db_path)
             return jsonify({
                 'success': True,
