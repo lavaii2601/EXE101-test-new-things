@@ -2505,6 +2505,43 @@ function buildEmailDetailMarkup(email, bodyHtml, isLoading = false) {
                 <div>${formatEmailText(email.summary)}</div>
            </div>`
         : '';
+    const attachments = Array.isArray(email.attachments) ? email.attachments : [];
+    const previewTypes = new Set([
+        'application/pdf',
+        'image/gif',
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'text/plain'
+    ]);
+    const attachmentsHTML = attachments.length
+        ? `<section class="email-attachments" aria-label="${ui('File đính kèm', 'Attachments')}">
+                <div class="email-attachments-heading">
+                    <strong>${ui('File đính kèm', 'Attachments')}</strong>
+                    <span>${attachments.length} ${ui('file', 'file(s)')}</span>
+                </div>
+                <div class="email-attachment-list">
+                    ${attachments.map((attachment) => {
+                        const mimeType = String(attachment.mime_type || 'application/octet-stream').toLowerCase();
+                        const baseUrl = `${API_BASE}/email/attachment/${encodeURIComponent(email.id)}/${encodeURIComponent(attachment.id)}`;
+                        const previewButton = previewTypes.has(mimeType)
+                            ? `<a class="email-attachment-action secondary" href="${baseUrl}?preview=1" target="_blank" rel="noopener">${ui('Xem', 'Preview')}</a>`
+                            : '';
+                        return `<article class="email-attachment-item">
+                            <div class="email-attachment-icon" aria-hidden="true">FILE</div>
+                            <div class="email-attachment-info">
+                                <strong title="${escapeHtml(attachment.filename || ui('File đính kèm', 'Attachment'))}">${escapeHtml(attachment.filename || ui('File đính kèm', 'Attachment'))}</strong>
+                                <span>${escapeHtml(mimeType)} · ${formatFileSize(attachment.size)}</span>
+                            </div>
+                            <div class="email-attachment-actions">
+                                ${previewButton}
+                                <a class="email-attachment-action" href="${baseUrl}" download>${ui('Tải xuống', 'Download')}</a>
+                            </div>
+                        </article>`;
+                    }).join('')}
+                </div>
+           </section>`
+        : '';
 
     return `
         <div class="email-detail-header">
@@ -2520,7 +2557,21 @@ function buildEmailDetailMarkup(email, bodyHtml, isLoading = false) {
             <div><span>${ui('Ngày', 'Date')}</span><strong>${escapeHtml(email.date || ui('Không xác định', 'Unknown'))}</strong></div>
         </div>
         <div class="email-detail-body${isLoading ? ' email-detail-loading' : ''}">${bodyHtml}</div>
+        ${isLoading ? '' : attachmentsHTML}
     `;
+}
+
+function formatFileSize(value) {
+    const bytes = Number(value) || 0;
+    if (bytes < 1024) return `${bytes} B`;
+    const units = ['KB', 'MB', 'GB'];
+    let size = bytes / 1024;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+        size /= 1024;
+        unitIndex += 1;
+    }
+    return `${size >= 10 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`;
 }
 
 async function showFormattedEmailDetail(email) {
@@ -2532,13 +2583,17 @@ async function showFormattedEmailDetail(email) {
     emailDetailModal.classList.add('show');
     emailDetailModal.querySelector('.email-detail-close')?.focus();
 
-    if (!email.body) {
+    if (!email.body || !Array.isArray(email.attachments)) {
         try {
             const response = await apiFetch(`${API_BASE}/email/get-email-body/${email.id}`);
             const data = await response.json();
             email.body = data.success ? data.body : ui('Không thể tải nội dung.', 'Unable to load content.');
+            email.attachments = data.success && Array.isArray(data.email?.attachments)
+                ? data.email.attachments
+                : [];
         } catch (error) {
             email.body = `Lỗi: ${error.message}`;
+            email.attachments = [];
         }
     }
 
@@ -2588,13 +2643,17 @@ async function showEmailDetail(email) {
     if (emailDetailModal) emailDetailModal.classList.add('show');
     
     // Lazy load body
-    if (!email.body) {
+    if (!email.body || !Array.isArray(email.attachments)) {
         try {
             const response = await apiFetch(`${API_BASE}/email/get-email-body/${email.id}`);
             const data = await response.json();
             email.body = data.success ? data.body : ui('Không thể tải nội dung', 'Unable to load content');
+            email.attachments = data.success && Array.isArray(data.email?.attachments)
+                ? data.email.attachments
+                : [];
         } catch (error) {
             email.body = ui('Lỗi: ', 'Error: ') + error.message;
+            email.attachments = [];
         }
     }
     

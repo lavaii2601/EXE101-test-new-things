@@ -7,7 +7,8 @@ import base64
 import re
 import requests
 import unicodedata
-from flask import Blueprint, request, jsonify, redirect, url_for, session
+from io import BytesIO
+from flask import Blueprint, request, jsonify, redirect, url_for, session, send_file
 from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -752,7 +753,11 @@ def get_email_body(email_id):
 
     try:
         cached = Cache.get(_email_body_cache_key(user_id, email_id), db_path=db_path)
-        if isinstance(cached, dict) and cached.get('body'):
+        if (
+            isinstance(cached, dict)
+            and cached.get('body')
+            and 'attachments' in cached
+        ):
             return jsonify({
                 'success': True,
                 'body': cached.get('body', ''),
@@ -779,6 +784,41 @@ def get_email_body(email_id):
     except Exception as e:
         logger.error(f"Error getting email body: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+
+@email_bp.route('/attachment/<email_id>/<path:attachment_id>', methods=['GET'])
+def get_email_attachment(email_id, attachment_id):
+    """Download an attachment, or preview a small set of browser-safe formats."""
+    user_id = get_current_user_id(request, session=session)
+    service = _load_gmail_service(user_id)
+    if not service:
+        return jsonify({'error': 'not_authenticated'}), 401
+
+    attachment = service.get_attachment(email_id, attachment_id)
+    if not attachment:
+        return jsonify({'error': 'Attachment not found'}), 404
+
+    filename = str(attachment.get('filename') or 'attachment')
+    filename = os.path.basename(filename.replace('\\', '/')).replace('\r', '').replace('\n', '')
+    mime_type = str(attachment.get('mime_type') or 'application/octet-stream').lower()
+    preview_types = {
+        'application/pdf',
+        'image/gif',
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'text/plain',
+    }
+    preview = request.args.get('preview') == '1' and mime_type in preview_types
+    response = send_file(
+        BytesIO(attachment.get('data') or b''),
+        mimetype=mime_type,
+        as_attachment=not preview,
+        download_name=filename,
+        max_age=0,
+    )
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
 
 
 @email_bp.route('/summary/<email_id>', methods=['GET', 'POST'])
