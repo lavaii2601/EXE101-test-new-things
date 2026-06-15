@@ -671,6 +671,9 @@ async function initApp() {
         }
     }
     await refreshAuthButtons();
+    scanMeetingSuggestions().catch(error => {
+        console.warn('Background meeting suggestion scan failed:', error);
+    });
     checkRuntimeConfig();
     
     // Auto-load emails if user is on emails page and authenticated
@@ -2075,6 +2078,8 @@ async function gmailLogin() {
 
 // Client-side email cache for fallback pagination
 let emailsCache = [];
+const notifiedMeetingSuggestionIds = new Set();
+let lastMeetingSuggestionScanAt = 0;
 
 async function toggleEmailReadStatus(emailId, isUnread) {
     try {
@@ -2169,6 +2174,8 @@ async function loadEmails(page = 1) {
             `;
             return;
         }
+
+        notifyMeetingSuggestions(data.meeting_suggestions || []);
         
         if (!data.emails || data.emails.length === 0) {
             console.warn('⚠️ No emails found');
@@ -2711,13 +2718,17 @@ async function loadWeekSchedule() {
     }
 }
 
-function openNewScheduleModal() {
+function openNewScheduleModal(preserveSuggestion = false) {
     const modal = document.getElementById('newScheduleModal');
+    const form = document.getElementById('scheduleForm');
+    if (!preserveSuggestion && form) delete form.dataset.meetingSuggestionId;
     if (modal) modal.classList.add('show');
 }
 
 function closeNewScheduleModal() {
     const modal = document.getElementById('newScheduleModal');
+    const form = document.getElementById('scheduleForm');
+    if (form) delete form.dataset.meetingSuggestionId;
     if (modal) modal.classList.remove('show');
 }
 
@@ -2727,6 +2738,11 @@ async function loadSchedules() {
     if (!schedulesList) return;
 
     schedulesList.innerHTML = `<p class="schedule-empty-state">${ui('Đang tải lịch tổng hợp...', 'Loading calendar...')}</p>`;
+    scanMeetingSuggestions()
+        .catch(error => console.warn('Meeting suggestion scan error:', error))
+        .finally(() => loadMeetingSuggestions().catch(error => {
+            console.error('Meeting suggestion load error:', error);
+        }));
 
     try {
         const response = await apiFetch(`${API_BASE}/schedule/unified?max_results=100`);
@@ -2809,6 +2825,129 @@ async function loadSchedules() {
     } catch (error) {
         schedulesList.innerHTML = `<p class="schedule-empty-state">${ui('Lỗi', 'Error')}: ${escapeHtml(error.message)}</p>`;
     }
+}
+
+function notifyMeetingSuggestions(suggestions) {
+    const fresh = (suggestions || []).filter(item => {
+        const id = String(item.id || '');
+        if (!id || notifiedMeetingSuggestionIds.has(id)) return false;
+        notifiedMeetingSuggestionIds.add(id);
+        return true;
+    });
+    if (!fresh.length) return;
+
+    showNotification(
+        ui(
+            `📅 Phát hiện ${fresh.length} email liên quan đến cuộc họp. Xem gợi ý trong tab Lịch.`,
+            `📅 Found ${fresh.length} meeting-related email. Review suggestions in Calendar.`
+        ),
+        'info'
+    );
+}
+
+async function scanMeetingSuggestions(force = false) {
+    const now = Date.now();
+    if (!force && now - lastMeetingSuggestionScanAt < 5 * 60 * 1000) return [];
+    lastMeetingSuggestionScanAt = now;
+
+    const response = await apiFetch(`${API_BASE}/email/meeting-suggestions/scan`, {
+        method: 'POST'
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+        if (data.error === 'not_authenticated') return [];
+        throw new Error(data.error || ui('Không thể quét email', 'Unable to scan email'));
+    }
+    const suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+    notifyMeetingSuggestions(suggestions);
+    return suggestions;
+}
+
+async function updateMeetingSuggestionStatus(suggestionId, status, scheduleId = null) {
+    const response = await apiFetch(`${API_BASE}/email/meeting-suggestions/${suggestionId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, schedule_id: scheduleId })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+        throw new Error(data.error || ui('Không thể cập nhật gợi ý', 'Unable to update suggestion'));
+    }
+}
+
+function openMeetingSuggestion(suggestion) {
+    const form = document.getElementById('scheduleForm');
+    if (!form) return;
+
+    document.getElementById('scheduleTitle').value = suggestion.title || suggestion.subject || ui('Lịch hẹn từ email', 'Appointment from email');
+    document.getElementById('scheduleDesc').value = suggestion.description || suggestion.snippet || '';
+    document.getElementById('scheduleStartTime').value = toDatetimeLocal(suggestion.start_time);
+    const endInput = document.getElementById('scheduleEndTime');
+    if (endInput) endInput.value = toDatetimeLocal(suggestion.end_time);
+    const locationInput = document.getElementById('scheduleLocation');
+    if (locationInput) locationInput.value = suggestion.location || '';
+    document.getElementById('scheduleAttendees').value = suggestion.attendees || '';
+    form.dataset.meetingSuggestionId = suggestion.id;
+    openNewScheduleModal(true);
+
+    if (!suggestion.start_time) {
+        showNotification(
+            ui('Email chưa có ngày giờ rõ ràng. Vui lòng chọn thời gian trước khi tạo lịch.', 'The email has no clear date and time. Select one before creating the event.'),
+            'info'
+        );
+    }
+}
+
+async function loadMeetingSuggestions() {
+    const section = document.getElementById('emailMeetingSuggestions');
+    const list = document.getElementById('meetingSuggestionsList');
+    const count = document.getElementById('meetingSuggestionCount');
+    if (!section || !list || !count) return;
+
+    const response = await apiFetch(`${API_BASE}/email/meeting-suggestions`);
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+        throw new Error(data.error || ui('Không thể tải gợi ý lịch', 'Unable to load calendar suggestions'));
+    }
+
+    const suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+    section.hidden = suggestions.length === 0;
+    count.textContent = String(suggestions.length);
+    list.innerHTML = '';
+    notifyMeetingSuggestions(suggestions);
+
+    suggestions.forEach(suggestion => {
+        const card = document.createElement('article');
+        card.className = 'meeting-suggestion-card';
+        const start = suggestion.start_time
+            ? new Date(suggestion.start_time).toLocaleString(currentLanguage === 'en' ? 'en-US' : 'vi-VN')
+            : ui('Chưa xác định thời gian', 'Time not detected');
+        card.innerHTML = `
+            <div class="meeting-suggestion-main">
+                <div class="meeting-suggestion-title">${escapeHtml(suggestion.title || suggestion.subject || ui('Lịch hẹn từ email', 'Appointment from email'))}</div>
+                <div class="meeting-suggestion-source">${ui('Từ', 'From')}: ${escapeHtml(suggestion.sender || ui('Không xác định', 'Unknown'))}</div>
+                <div class="meeting-suggestion-time">${escapeHtml(start)}</div>
+                ${suggestion.snippet ? `<p>${escapeHtml(suggestion.snippet)}</p>` : ''}
+            </div>
+            <div class="meeting-suggestion-actions">
+                <button type="button" class="btn-primary meeting-suggestion-create">${ui('Tạo lịch', 'Create event')}</button>
+                <button type="button" class="btn-secondary meeting-suggestion-dismiss">${ui('Bỏ qua', 'Dismiss')}</button>
+            </div>
+        `;
+        card.querySelector('.meeting-suggestion-create').addEventListener('click', () => {
+            openMeetingSuggestion(suggestion);
+        });
+        card.querySelector('.meeting-suggestion-dismiss').addEventListener('click', async () => {
+            try {
+                await updateMeetingSuggestionStatus(suggestion.id, 'dismissed');
+                await loadMeetingSuggestions();
+                showNotification(ui('Đã bỏ qua gợi ý lịch hẹn', 'Appointment suggestion dismissed'), 'info');
+            } catch (error) {
+                showNotification(`${ui('Lỗi', 'Error')}: ${error.message}`, 'error');
+            }
+        });
+        list.appendChild(card);
+    });
 }
 
 function plainTextFromHtml(value) {
@@ -3002,6 +3141,15 @@ async function handleScheduleSubmit(e) {
         const data = await response.json();
         if (data.success) {
             const sid = data.schedule_id;
+            const meetingSuggestionId = scheduleForm.dataset.meetingSuggestionId;
+            if (meetingSuggestionId) {
+                try {
+                    await updateMeetingSuggestionStatus(meetingSuggestionId, 'created', sid);
+                } catch (error) {
+                    console.warn('Unable to mark meeting suggestion as created:', error);
+                }
+                delete scheduleForm.dataset.meetingSuggestionId;
+            }
             if (data.calendar_event_id) {
                 showNotification(ui('✅ Lịch hẹn đã được tạo và đồng bộ Google Calendar', '✅ Appointment created and synced with Google Calendar'), 'success');
             } else {

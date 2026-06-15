@@ -127,22 +127,67 @@ def _format_email_context(user_id):
     return "\n".join(lines)
 
 
-def _format_calendar_context(user_id, db_path):
-    lines = ["LỊCH VÀ SỰ KIỆN SẮP TỚI"]
+def _calendar_window(message):
+    normalized = _normalize_intent_text(message)
+    now = datetime.now().astimezone()
+    monday = (now - timedelta(days=now.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+    if 'tuan truoc' in normalized or 'last week' in normalized:
+        return monday - timedelta(days=7), monday, 'TUẦN TRƯỚC'
+    if 'tuan nay' in normalized or 'this week' in normalized:
+        return monday, monday + timedelta(days=7), 'TUẦN NÀY'
+    if 'tuan sau' in normalized or 'next week' in normalized:
+        return monday + timedelta(days=7), monday + timedelta(days=14), 'TUẦN SAU'
+    if 'hom qua' in normalized or 'yesterday' in normalized:
+        start = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        return start, start + timedelta(days=1), 'HÔM QUA'
+    if 'hom nay' in normalized or 'today' in normalized:
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return start, start + timedelta(days=1), 'HÔM NAY'
+
+    return now, now + timedelta(days=30), 'SẮP TỚI'
+
+
+def _parse_schedule_datetime(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=datetime.now().astimezone().tzinfo)
+        return parsed.astimezone()
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_calendar_context(message, user_id, db_path):
+    window_start, window_end, window_label = _calendar_window(message)
+    lines = [
+        f"LỊCH VÀ SỰ KIỆN {window_label}",
+        f"Khoảng thời gian: {window_start.date().isoformat()} đến {(window_end - timedelta(days=1)).date().isoformat()}",
+    ]
     token_file = get_user_token_file(user_id)
     google_events = []
     if token_file and os.path.exists(token_file):
-        now = datetime.now().astimezone()
-        time_max = now + timedelta(days=30)
         google_events = CalendarService(token_file=token_file).get_events(
-            max_results=10,
-            time_min=now.isoformat(),
-            time_max=time_max.isoformat()
+            max_results=50,
+            time_min=window_start.isoformat(),
+            time_max=window_end.isoformat()
         )
 
-    local_schedules = ScheduleService.get_upcoming_schedules(db_path=db_path)
+    local_schedules = []
+    for schedule in Schedule.get_all(limit=100, db_path=db_path):
+        start_time = _parse_schedule_datetime(schedule.get('start_time'))
+        if start_time and window_start <= start_time < window_end:
+            local_schedules.append(schedule)
+    local_schedules.sort(
+        key=lambda item: _parse_schedule_datetime(item.get('start_time')) or window_end
+    )
+
     if not google_events and not local_schedules:
-        return "\n".join(lines + ["Không có lịch hoặc sự kiện sắp tới."])
+        return "\n".join(lines + [f"Không có lịch hoặc sự kiện trong {window_label.lower()}."])
 
     seen = set()
     item_index = 1
@@ -212,7 +257,7 @@ def _build_workspace_context(message, user_id, db_path):
     if 'email' in sources:
         context_parts.append(_format_email_context(user_id))
     if 'calendar' in sources:
-        context_parts.append(_format_calendar_context(user_id, db_path))
+        context_parts.append(_format_calendar_context(message, user_id, db_path))
     if 'history' in sources:
         context_parts.append(_format_history_context(db_path))
     if 'profile' in sources:

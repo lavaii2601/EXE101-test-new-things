@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FlowMate - Không gian làm việc thông minh</title>
-    <link rel="stylesheet" href="/css/style.css?v=20260615-8">
+    <link rel="stylesheet" href="/css/style.css?v=20260615-10">
 </head>
 <body>
     <section id="authGate" class="auth-gate" aria-labelledby="authGateTitle">
@@ -256,6 +256,16 @@
                             </table>
                         </div>
                     </div>
+                    <section id="emailMeetingSuggestions" class="meeting-suggestions-section" hidden>
+                        <div class="meeting-suggestions-header">
+                            <div>
+                                <span>GỢI Ý TỪ EMAIL</span>
+                                <h3>Cuộc họp và lịch hẹn được phát hiện</h3>
+                            </div>
+                            <span id="meetingSuggestionCount" class="meeting-suggestion-count">0</span>
+                        </div>
+                        <div id="meetingSuggestionsList" class="meeting-suggestions-list"></div>
+                    </section>
                     <div id="schedulesList" class="schedules-list unified-schedules-list" style="margin-top:16px;"></div>
                 </div>
             </section>
@@ -553,6 +563,6 @@
         </div>
     </div>
     
-    <script src="/js/app.js?v=20260615-10"></script>
+    <script src="/js/app.js?v=20260615-11"></script>
 </body>
 </html>
