@@ -9,6 +9,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.text.Html;
 import android.text.TextUtils;
@@ -2021,7 +2022,9 @@ public class MainActivity extends Activity {
 
         String decoded = raw.trim();
         for (int i = 0; i < 2; i++) {
-            CharSequence parsed = Html.fromHtml(decoded, Html.FROM_HTML_MODE_LEGACY);
+            CharSequence parsed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
+                    ? Html.fromHtml(decoded, Html.FROM_HTML_MODE_LEGACY)
+                    : Html.fromHtml(decoded);
             String next = parsed.toString();
             if (next.equals(decoded)) break;
             decoded = next;
