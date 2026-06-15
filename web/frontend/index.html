@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FlowMate - Không gian làm việc thông minh</title>
-    <link rel="stylesheet" href="/css/style.css?v=20260615-11">
+    <link rel="stylesheet" href="/css/style.css?v=20260615-12">
 </head>
 <body>
     <section id="authGate" class="auth-gate" aria-labelledby="authGateTitle">
@@ -134,7 +134,7 @@
             <section id="emails-page" class="page">
                 <div class="section-header">
                     <h2 data-i18n="email.title">Quản lý Email</h2>
-                    <div style="display:flex; gap:8px; align-items:center;">
+                    <div class="email-toolbar">
                         <span id="gmailAccountBadge" class="gmail-account-badge">Chưa đăng nhập Gmail</span>
                         <div id="gmailProfileCard" class="gmail-profile-card" style="display:none;">
                             <img id="gmailAvatar" class="gmail-avatar" alt="avatar" src="">
@@ -153,8 +153,8 @@
                             <option value="personal">Cá nhân</option>
                             <option value="other">Khác</option>
                         </select>
-                        <label style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; background: #f5f5f5; border-radius: 4px; cursor: pointer;">
-                            <input type="checkbox" id="includeReadCheckbox" checked style="cursor: pointer;">
+                        <label class="email-include-read">
+                            <input type="checkbox" id="includeReadCheckbox" checked>
                             <span style="font-size: 14px;" data-i18n="email.includeRead">Giữ email đã đọc</span>
                         </label>
                         <button id="refreshEmailsBtn" class="btn-secondary" data-i18n="common.refresh">Làm mới</button>

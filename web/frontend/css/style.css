@@ -860,6 +860,95 @@ select:focus {
     font-size: 22px;
 }
 
+#emails-page .section-header {
+    align-items: flex-start;
+}
+
+#emails-page .section-header h2 {
+    flex: 0 0 auto;
+    padding-top: 8px;
+}
+
+.email-toolbar {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
+    gap: 8px;
+}
+
+.email-toolbar .gmail-profile-card {
+    min-width: 0;
+    max-width: 260px;
+}
+
+.email-toolbar .gmail-profile-info {
+    min-width: 0;
+}
+
+.email-toolbar .gmail-name,
+.email-toolbar .gmail-email {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.email-include-read {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel-soft);
+    color: var(--text);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.email-include-read input {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+.email-toolbar > button,
+.email-toolbar > label {
+    flex: 0 0 auto;
+}
+
+@media (max-width: 1180px) {
+    #emails-page .section-header {
+        flex-direction: column;
+    }
+
+    #emails-page .section-header h2 {
+        padding-top: 0;
+    }
+
+    .email-toolbar {
+        width: 100%;
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 620px) {
+    .email-toolbar .gmail-profile-card {
+        flex: 1 1 100%;
+        max-width: none;
+    }
+
+    .email-toolbar > button {
+        flex: 1 1 auto;
+    }
+}
+
 .tabs {
     display: flex;
     flex-wrap: wrap;
@@ -1696,6 +1785,7 @@ select:focus {
 }
 
 .gmail-name {
+    color: var(--text);
     font-weight: 700;
 }
 
@@ -3216,6 +3306,21 @@ body.dark-theme .section-header,
 body.dark-theme #schedule-page .section-header {
     border-color: var(--border);
     background: #121827;
+}
+
+body.dark-theme .gmail-profile-card,
+body.dark-theme .email-include-read {
+    border-color: #39435a;
+    background: #1b2232;
+    color: var(--text);
+}
+
+body.dark-theme .gmail-name {
+    color: #f3f5fb;
+}
+
+body.dark-theme .gmail-email {
+    color: #aeb7ca;
 }
 
 body.dark-theme .settings-page-header {
